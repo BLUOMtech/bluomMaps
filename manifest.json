@@ -1,0 +1,9 @@
+{
+  "name": "BLUOM Maps",
+  "short_name": "BLUOM Maps",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b3d91",
+  "theme_color": "#0b3d91",
+  "icons": []
+}

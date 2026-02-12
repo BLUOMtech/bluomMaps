@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>BLUOM Maps</title>
+
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<link rel="manifest" href="manifest.json">
+
+<style>
+body{margin:0;font-family:Arial;overflow:hidden}
+#map{position:absolute;inset:0}
+
+.top{position:absolute;top:10px;left:10px;right:10px;z-index:10;display:flex;gap:8px}
+.top input{flex:1;padding:10px;border-radius:8px;border:none}
+
+.fab{position:absolute;right:10px;bottom:120px;z-index:10;background:#1e90ff;color:#fff;border:none;border-radius:50%;width:55px;height:55px;font-size:22px}
+
+.sheet{position:absolute;left:0;right:0;bottom:0;height:110px;background:#fff;border-radius:20px 20px 0 0;transition:.3s;padding:12px;overflow:auto}
+.sheet.open{height:55vh}
+.handle{width:60px;height:6px;background:#ccc;border-radius:10px;margin:0 auto 8px}
+
+.dark .sheet{background:#111;color:#fff}
+button{padding:8px;margin-top:6px;border:none;border-radius:6px;background:#1e90ff;color:white}
+</style>
+</head>
+
+<body>
+<div id="map"></div>
+
+<div class="top">
+  <input id="search" placeholder="Search places...">
+</div>
+
+<button class="fab" onclick="goToMe()">📍</button>
+
+<div id="sheet" class="sheet">
+  <div class="handle"></div>
+  <div id="content">Tap map or search</div>
+</div>
+
+<script>
+const style='https://demotiles.maplibre.org/style.json';
+const map=new maplibregl.Map({
+  container:'map',
+  style:style,
+  center:[152.95,-27.55],
+  zoom:15,
+  pitch:45
+});
+
+map.on('load',()=>{
+  map.setPaintProperty('water','fill-color','#0b3d91');
+});
+
+function openSheet(html){
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('content').innerHTML=html;
+}
+
+search.onchange=async e=>{
+  const q=e.target.value;
+  const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
+  const d=await r.json();
+  if(d[0]) map.flyTo({center:[d[0].lon,d[0].lat],zoom:16});
+};
+
+map.on('click', async e=>{
+  const {lng,lat}=e.lngLat;
+  const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+  const d=await r.json();
+
+  openSheet(`
+    <b>${d.name||'Location'}</b><br>${d.display_name}<br>
+    <button onclick="savePlace('${d.display_name}',${lng},${lat})">⭐ Save</button>
+    <button onclick="setStart([${lng},${lat}])">Start here</button>
+    <button onclick="setEnd([${lng},${lat}])">End here</button>
+    <button onclick="showSaved()">Saved Places</button>
+  `);
+});
+
+function savePlace(name,lng,lat){
+  const s=JSON.parse(localStorage.getItem('saved')||'[]');
+  s.push({name,lng,lat});
+  localStorage.setItem('saved',JSON.stringify(s));
+  alert('Saved!');
+}
+function showSaved(){
+  const s=JSON.parse(localStorage.getItem('saved')||'[]');
+  let html='<b>Saved Places</b><br>';
+  s.forEach(p=>{
+    html+=`<button onclick="map.flyTo({center:[${p.lng},${p.lat}],zoom:16})">${p.name}</button><br>`;
+  });
+  openSheet(html);
+}
+
+let start=null,end=null;
+
+function setStart(c){
+  start=c;
+  new maplibregl.Marker({color:'green'}).setLngLat(c).addTo(map);
+}
+function setEnd(c){
+  end=c;
+  new maplibregl.Marker({color:'red'}).setLngLat(c).addTo(map);
+  if(start) getRoute();
+}
+
+async function getRoute(){
+  const url=`https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${end[0]},${end[1]}?overview=full&geometries=geojson&steps=true`;
+  const r=await fetch(url); const d=await r.json();
+  const route=d.routes[0];
+
+  if(map.getSource('r')){
+    map.removeLayer('r'); map.removeSource('r');
+  }
+  map.addSource('r',{type:'geojson',data:{type:'Feature',geometry:route.geometry}});
+  map.addLayer({id:'r',type:'line',source:'r',paint:{'line-color':'#1e90ff','line-width':6}});
+
+  let steps='<b>Route</b><br>';
+  route.legs[0].steps.forEach((s,i)=>{
+    steps+=`${i+1}. ${s.maneuver.instruction}<br>`;
+  });
+
+  openSheet(steps);
+  speakSteps(route.legs[0].steps);
+}
+
+function speakSteps(steps){
+  let i=0;
+  function speak(){
+    if(i>=steps.length) return;
+    const msg=new SpeechSynthesisUtterance(steps[i].maneuver.instruction);
+    speechSynthesis.speak(msg);
+    i++;
+    setTimeout(speak,5000);
+  }
+  speak();
+}
+
+function goToMe(){
+  navigator.geolocation.getCurrentPosition(p=>{
+    const c=[p.coords.longitude,p.coords.latitude];
+    map.flyTo({center:c,zoom:16});
+  });
+}
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
